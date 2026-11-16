@@ -17,6 +17,12 @@
 
 namespace kotte
 {
+    enum class RoundState : std::uint8_t {
+        playing,
+        won,
+        lost
+    };
+
     struct CollisionDiagnostics final {
         std::size_t enemy_updates = 0;
         std::size_t movement_attempts = 0;
@@ -31,7 +37,7 @@ namespace kotte
         std::size_t enemy_turns = 0;
     };
 
-    class Application final{
+    class Application final {
     public:
         Application(
             int window_width,
@@ -127,20 +133,20 @@ namespace kotte
         static constexpr float bomb_fuse_seconds_ = 2.0f;
         static constexpr std::uint8_t bomb_blast_range_ = 3;
         static constexpr float blast_effect_seconds_ = 0.35f;
-        static constexpr Color background_color_{0x11, 0x22, 0x33, 0xff};
+        static constexpr Color background_color_{ 0x11, 0x22, 0x33, 0xff };
         static constexpr Color floor_colors_[3]{
             Color{0x38, 0x49, 0x52, 0xff},
             Color{0x3d, 0x4f, 0x59, 0xff},
             Color{0x42, 0x55, 0x60, 0xff}
         };
-        static constexpr Color player_color_{0xf2, 0xc1, 0x4e, 0xff};
-        static constexpr Color bomb_color_{0x20, 0x24, 0x2a, 0xff};
-        static constexpr Color blast_color_{0xf2, 0x8f, 0x3b, 0xe8};
-        static constexpr Color crate_color_{0xb0, 0x72, 0x3c, 0xff};
-        static constexpr Color enemy_color_{0xd9, 0x4f, 0x70, 0xff};
-        static constexpr Color wall_color_{0x78, 0x5f, 0x47, 0xff};
+        static constexpr Color player_color_{ 0xf2, 0xc1, 0x4e, 0xff };
+        static constexpr Color bomb_color_{ 0x20, 0x24, 0x2a, 0xff };
+        static constexpr Color blast_color_{ 0xf2, 0x8f, 0x3b, 0xe8 };
+        static constexpr Color crate_color_{ 0xb0, 0x72, 0x3c, 0xff };
+        static constexpr Color enemy_color_{ 0xd9, 0x4f, 0x70, 0xff };
+        static constexpr Color wall_color_{ 0x78, 0x5f, 0x47, 0xff };
 
-        Window window_; // Constructed first, destroyed last.
+        Window window_;
         Camera camera_;
         Random random_;
         TileMap map_;
@@ -158,5 +164,7 @@ namespace kotte
         std::uint64_t seed_;
         EntityHandle player_handle_;
         bool exit_requested_ = false;
+        RoundState round_state_ = RoundState::playing;
+        bool player_died_this_frame_ = false;
     };
 }
