@@ -14,6 +14,7 @@ namespace kotte
     class EntityStore final {
     public:
         void reserve(std::size_t capacity);
+        void clear() noexcept;
 
         [[nodiscard]] EntityHandle create(Entity entity);
         [[nodiscard]] bool destroy(EntityHandle handle);
@@ -31,8 +32,10 @@ namespace kotte
         static constexpr std::uint32_t first_generation_ = 1;
 
         struct Slot final {
+            Slot() = default;
+
             explicit Slot(Entity value)
-                : entity{std::move(value)}{
+                : entity{ std::move(value) } {
             }
 
             std::optional<Entity> entity;

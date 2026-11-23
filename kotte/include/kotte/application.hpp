@@ -56,6 +56,7 @@ namespace kotte
         struct FrameActions final {
             Vector2 player_movement_direction{};
             bool place_bomb = false;
+            bool restart_round = false;
         };
 
         struct PlaceBombRequest final {
@@ -86,6 +87,7 @@ namespace kotte
         void update_timed_gameplay(float delta_time);
         void resolve_gameplay_facts();
         void apply_structural_mutations();
+        void restart_round();
         void update_presentation(float delta_time);
         void update_player(float delta_time);
         void try_move_player(Vector2 axis_displacement);
@@ -146,7 +148,7 @@ namespace kotte
         static constexpr Color enemy_color_{ 0xd9, 0x4f, 0x70, 0xff };
         static constexpr Color wall_color_{ 0x78, 0x5f, 0x47, 0xff };
 
-        Window window_; // Constructed first, destroyed last.
+        Window window_;
         Camera camera_;
         Random random_;
         TileMap map_;

@@ -72,6 +72,9 @@ namespace kotte
             request_exit();
         }
         if (round_state_ != RoundState::playing) {
+            if (IsKeyPressed(KEY_R)) {
+                frame_actions_.restart_round = true;
+            }
             return;
         }
         frame_actions_.place_bomb = IsKeyPressed(KEY_SPACE);
@@ -165,6 +168,11 @@ namespace kotte
     }
 
     void Application::apply_structural_mutations() {
+        if (frame_actions_.restart_round) {
+            restart_round();
+            return;
+        }
+
         // Entity storage and every derived index change only at this boundary.
         apply_entity_destructions();
         apply_bomb_placements();
@@ -178,6 +186,37 @@ namespace kotte
             else if (enemy_handles_.empty()) {
                 round_state_ = RoundState::won;
             }
+        }
+    }
+
+    void Application::restart_round() {
+        // Clear pending requests, facts, active effects, and entity views first
+        // so stale handles from the previous round never survive or act.
+        place_bomb_requests_.clear();
+        bomb_detonated_facts_.clear();
+        destroy_entity_requests_.clear();
+        blast_effects_.clear();
+        enemy_handles_.clear();
+        active_bomb_handles_.clear();
+
+        entities_.clear();
+        random_ = Random{ seed_ };
+        map_ = make_room(200, 120, random_);
+        spatial_grid_ = SpatialGrid{ {
+            static_cast<float>(map_.width() * tile_size_),
+            static_cast<float>(map_.height() * tile_size_)}, spatial_cell_size_ };
+
+        round_state_ = RoundState::playing;
+        player_died_this_frame_ = false;
+        collision_diagnostics_ = {};
+
+        populate_entities();
+        initialize_enemies();
+
+        camera_.set_viewport_size(window_.size());
+        const Entity* player_entity = entities_.try_get(player_handle_);
+        if (player_entity != nullptr) {
+            camera_.set_centre(player_entity->world_position);
         }
     }
 
@@ -550,7 +589,7 @@ namespace kotte
 
         const std::string_view state_label = round_state_ == RoundState::playing
             ? "Playing"
-            : (round_state_ == RoundState::won ? "Won" : "Lost");
+            : (round_state_ == RoundState::won ? "Won (R to restart)" : "Lost (R to restart)");
         const Color state_color = round_state_ == RoundState::lost
             ? RED
             : (round_state_ == RoundState::won ? GREEN : RAYWHITE);
