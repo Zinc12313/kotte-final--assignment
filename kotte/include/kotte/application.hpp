@@ -146,7 +146,7 @@ namespace kotte
         static constexpr Color enemy_color_{ 0xd9, 0x4f, 0x70, 0xff };
         static constexpr Color wall_color_{ 0x78, 0x5f, 0x47, 0xff };
 
-        Window window_;
+        Window window_; // Constructed first, destroyed last.
         Camera camera_;
         Random random_;
         TileMap map_;

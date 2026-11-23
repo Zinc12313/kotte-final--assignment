@@ -71,12 +71,9 @@ namespace kotte
         if (IsKeyPressed(KEY_ESCAPE) || IsKeyPressed(KEY_Q)) {
             request_exit();
         }
-
-        // Lock inputs if round is no longer playing
         if (round_state_ != RoundState::playing) {
             return;
         }
-
         frame_actions_.place_bomb = IsKeyPressed(KEY_SPACE);
 
         Vector2& movement_direction = frame_actions_.player_movement_direction;
@@ -110,6 +107,9 @@ namespace kotte
     }
 
     void Application::update_timed_gameplay(float delta_time) {
+        if (round_state_ != RoundState::playing) {
+            return;
+        }
         // This list is independent of camera queries, so off-screen fuses advance.
         for (const EntityHandle bomb_handle : active_bomb_handles_) {
             Entity* bomb = entities_.try_get(bomb_handle);
@@ -169,9 +169,15 @@ namespace kotte
         apply_entity_destructions();
         apply_bomb_placements();
 
-        // Consequential round state transition once player death is processed
-        if (player_died_this_frame_ && round_state_ == RoundState::playing) {
-            round_state_ = RoundState::lost;
+        // Priority rule: Lost takes precedence over Won if player death and
+        // defeating the final enemy happen in the same frame.
+        if (round_state_ == RoundState::playing) {
+            if (player_died_this_frame_) {
+                round_state_ = RoundState::lost;
+            }
+            else if (enemy_handles_.empty()) {
+                round_state_ = RoundState::won;
+            }
         }
     }
 
@@ -264,7 +270,6 @@ namespace kotte
             spatial_grid_.update(enemy_handle, old_world_bounds, new_world_bounds);
         }
 
-        // Exact collision-bounds check between enemies and player
         if (round_state_ == RoundState::playing && !player_died_this_frame_) {
             const Rectangle player_collision = entity_collision_bounds(player());
             for (const EntityHandle enemy_handle : enemy_handles_) {
@@ -392,7 +397,6 @@ namespace kotte
                 blocked_by_crate = true;
                 break;
             case EntityKind::player:
-                // Consequential blast-to-player collision
                 if (round_state_ == RoundState::playing && !player_died_this_frame_) {
                     destroy_entity_requests_.push_back({ handle });
                     player_died_this_frame_ = true;
@@ -427,8 +431,6 @@ namespace kotte
     void Application::update_camera(float delta_time) noexcept {
         (void)delta_time; // name the argument to avoid the static analyzer yelling at us. :) We'll animate the camera later.
         camera_.set_viewport_size(window_.size());
-
-        // Safely check player existence to prevent assertions upon destruction
         const Entity* player_entity = entities_.try_get(player_handle_);
         if (player_entity != nullptr) {
             camera_.set_centre(player_entity->world_position);
@@ -546,13 +548,17 @@ namespace kotte
 
         DrawFPS(GetScreenWidth() - 100, 2);
 
-        // HUD: Round state and objective display
-        const std::string_view state_str = round_state_ == RoundState::playing
-            ? "Playing - Objective: Survive & Clear Enemies"
-            : (round_state_ == RoundState::lost ? "Round Lost" : "Round Won");
-
-        diagnostics = std::format("Round State: {}", state_str);
-        DrawText(diagnostics.c_str(), 10, 10, 20, round_state_ == RoundState::lost ? RED : RAYWHITE);
+        const std::string_view state_label = round_state_ == RoundState::playing
+            ? "Playing"
+            : (round_state_ == RoundState::won ? "Won" : "Lost");
+        const Color state_color = round_state_ == RoundState::lost
+            ? RED
+            : (round_state_ == RoundState::won ? GREEN : RAYWHITE);
+        diagnostics = std::format(
+            "state: {} | objective: defeat all enemies ({} left)",
+            state_label,
+            enemy_handles_.size());
+        DrawText(diagnostics.c_str(), 10, 10, 20, state_color);
 
         const double percent_of_world = map_.tile_count() == 0 ? 0.0 : 100.0 * static_cast<double>(tiles_rendered) / static_cast<double>(map_.tile_count());
         diagnostics = std::format(
