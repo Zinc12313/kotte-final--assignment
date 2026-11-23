@@ -346,9 +346,14 @@ namespace kotte
                 continue;
             }
 
+            const Vector2 target_tile_centre = tile_centre(request.world_position);
+            if (tile_has_live_bomb(target_tile_centre)) {
+                continue;
+            }
+
             const Entity bomb{
                 .kind = EntityKind::bomb,
-                .world_position = request.world_position,
+                .world_position = target_tile_centre,
                 .bomb_state = BombState{
                     .owner = request.owner,
                     .fuse_remaining = bomb_fuse_seconds_,
@@ -740,7 +745,8 @@ namespace kotte
     bool Application::entity_movement_is_blocked(
         EntityHandle moving_entity_handle,
         Vector2 proposed_position) {
-        Entity proposed_entity = entity(moving_entity_handle);
+        const Entity& moving_entity = entity(moving_entity_handle);
+        Entity proposed_entity = moving_entity;
         proposed_entity.world_position = proposed_position;
 
         // Room walls are a simple boundary rule in the current map. Test the
@@ -759,6 +765,7 @@ namespace kotte
             return true;
         }
 
+        const Rectangle current_collision_bounds = entity_collision_bounds(moving_entity);
         const Rectangle proposed_collision_bounds = entity_collision_bounds(proposed_entity);
 
         // Broad phase: query nearby candidates using the proposed bounds.
@@ -782,12 +789,30 @@ namespace kotte
                 continue;
             }
 
+            const Rectangle candidate_collision = entity_collision_bounds(*candidate);
+
             // Narrow phase: exact-test the remaining solid candidate.
             ++collision_diagnostics_.exact_tests;
-            if (CheckCollisionRecs(proposed_collision_bounds, entity_collision_bounds(*candidate))) {
-                ++collision_diagnostics_.contacts;
-                blocked = true;
+            if (!CheckCollisionRecs(proposed_collision_bounds, candidate_collision)) {
+                continue;
             }
+
+            // Allow the validated bomb owner to escape while still overlapping
+            // the bomb; once fully clear, re-entry is blocked for everyone.
+            if (candidate->kind == EntityKind::bomb && candidate->bomb_state.has_value()) {
+                const EntityHandle bomb_owner = candidate->bomb_state->owner;
+                const Entity* validated_owner = entities_.try_get(bomb_owner);
+                const bool is_validated_owner = validated_owner != nullptr
+                    && bomb_owner == moving_entity_handle;
+                const bool currently_overlapping = CheckCollisionRecs(
+                    current_collision_bounds, candidate_collision);
+                if (is_validated_owner && currently_overlapping) {
+                    continue;
+                }
+            }
+
+            ++collision_diagnostics_.contacts;
+            blocked = true;
         }
 
         return blocked;
@@ -798,9 +823,8 @@ namespace kotte
         case EntityKind::player:
         case EntityKind::crate:
         case EntityKind::enemy:
-            return true;
         case EntityKind::bomb:
-            return false;
+            return true;
         }
 
         return false;
@@ -836,6 +860,17 @@ namespace kotte
             return bomb != nullptr
                 && bomb->bomb_state.has_value()
                 && bomb->bomb_state->owner == owner;
+            });
+    }
+
+    bool Application::tile_has_live_bomb(Vector2 tile_world_centre) const noexcept {
+        return std::ranges::any_of(active_bomb_handles_, [this, tile_world_centre](EntityHandle bomb_handle) {
+            const Entity* bomb = entities_.try_get(bomb_handle);
+            if (bomb == nullptr || bomb->kind != EntityKind::bomb) {
+                return false;
+            }
+            const Vector2 bomb_tile = tile_centre(bomb->world_position);
+            return bomb_tile.x == tile_world_centre.x && bomb_tile.y == tile_world_centre.y;
             });
     }
 
