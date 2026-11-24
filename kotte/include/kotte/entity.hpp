@@ -22,6 +22,11 @@ namespace kotte
         left
     };
 
+    enum class EnemyBehavior : std::uint8_t {
+        wander,
+        chaser
+    };
+
     struct BombState final {
         EntityHandle owner;
         float fuse_remaining = 0.0f;
@@ -33,6 +38,8 @@ namespace kotte
         EntityKind kind = EntityKind::crate;
         Vector2 world_position{};
         CardinalDirection movement_heading = CardinalDirection::right;
+        EnemyBehavior enemy_behavior = EnemyBehavior::wander;
+        bool is_chasing = false;
         std::optional<BombState> bomb_state;
     };
 }

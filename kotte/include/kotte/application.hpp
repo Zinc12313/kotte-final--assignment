@@ -124,11 +124,13 @@ namespace kotte
         [[nodiscard]] static bool is_solid(EntityKind kind) noexcept;
         [[nodiscard]] static Vector2 cardinal_vector(CardinalDirection direction) noexcept;
         [[nodiscard]] CardinalDirection different_enemy_direction(CardinalDirection current_direction);
+        [[nodiscard]] static CardinalDirection chase_primary_direction(Vector2 to_target) noexcept;
+        [[nodiscard]] static CardinalDirection chase_secondary_direction(Vector2 to_target) noexcept;
         [[nodiscard]] std::size_t active_bomb_count_for_owner(EntityHandle owner) const noexcept;
         [[nodiscard]] bool tile_has_live_bomb(Vector2 tile_world_centre) const noexcept;
         [[nodiscard]] static Vector2 tile_centre(Vector2 world_position) noexcept;
         [[nodiscard]] static Vector2 tile_centre(int column, int row) noexcept;
-        [[nodiscard]] static Color entity_color(EntityKind kind) noexcept;
+        [[nodiscard]] static Color entity_color(const Entity& entity) noexcept;
         [[nodiscard]] static float entity_roundness(EntityKind kind) noexcept;
 
         static constexpr int tile_size_ = 40;
@@ -136,6 +138,9 @@ namespace kotte
         static constexpr float spatial_cell_size_ = tile_size_ * spatial_cell_tiles_;
         static constexpr float player_speed_ = 240.0f;
         static constexpr float enemy_speed_ = 80.0f;
+        static constexpr float chaser_speed_ = 110.0f;
+        static constexpr float chase_enter_radius_ = 250.0f;
+        static constexpr float chase_exit_radius_ = 350.0f;
         static constexpr float bomb_fuse_seconds_ = 2.0f;
         static constexpr std::size_t max_active_bombs_per_owner_ = 2;
         static constexpr std::uint8_t bomb_blast_range_ = 3;
@@ -155,6 +160,7 @@ namespace kotte
         static constexpr Color blast_color_{ 0xf2, 0x8f, 0x3b, 0xe8 };
         static constexpr Color crate_color_{ 0xb0, 0x72, 0x3c, 0xff };
         static constexpr Color enemy_color_{ 0xd9, 0x4f, 0x70, 0xff };
+        static constexpr Color chaser_color_{ 0x9b, 0x59, 0xb6, 0xff };
         static constexpr Color pickup_color_{ 0x4e, 0xc9, 0xb0, 0xff };
         static constexpr Color wall_color_{ 0x78, 0x5f, 0x47, 0xff };
 

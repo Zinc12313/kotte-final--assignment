@@ -145,9 +145,9 @@ namespace kotte
     }
 
     void Application::resolve_gameplay_facts() {
-       
-        for (std::size_t i = 0; i < bomb_detonated_facts_.size(); ++i) {
-             const BombDetonated fact = bomb_detonated_facts_[i];
+        
+         for (std::size_t i = 0; i < bomb_detonated_facts_.size(); ++i) {
+            const BombDetonated fact = bomb_detonated_facts_[i];
 
             BlastEffect effect;
             effect.remaining_seconds = blast_effect_seconds_;
@@ -276,14 +276,69 @@ namespace kotte
     }
 
     void Application::update_enemies(float delta_time) {
+        const Entity* player_entity = entities_.try_get(player_handle_);
+
         for (const EntityHandle enemy_handle : enemy_handles_) {
+            Entity* enemy_ptr = entities_.try_get(enemy_handle);
+            if (enemy_ptr == nullptr) {
+                continue;
+            }
+            Entity& enemy = *enemy_ptr;
+
             ++collision_diagnostics_.enemy_updates;
             ++collision_diagnostics_.movement_attempts;
 
-            Entity& enemy = entity(enemy_handle);
+            // Update two-radius hysteresis state for chasers (250 enter, 350 exit).
+            Vector2 to_player{};
+            if (enemy.enemy_behavior == EnemyBehavior::chaser && player_entity != nullptr) {
+                to_player = player_entity->world_position - enemy.world_position;
+                const float distance_sq = Vector2LengthSqr(to_player);
+                if (!enemy.is_chasing && distance_sq <= chase_enter_radius_ * chase_enter_radius_) {
+                    enemy.is_chasing = true;
+                }
+                else if (enemy.is_chasing && distance_sq > chase_exit_radius_ * chase_exit_radius_) {
+                    enemy.is_chasing = false;
+                }
+            }
+            else {
+                enemy.is_chasing = false;
+            }
+
+            const float move_speed = enemy.is_chasing ? chaser_speed_ : enemy_speed_;
             const Rectangle old_world_bounds = entity_world_bounds(enemy);
+
+            if (enemy.is_chasing) {
+                const CardinalDirection primary = chase_primary_direction(to_player);
+                const Vector2 primary_proposed = enemy.world_position
+                    + cardinal_vector(primary) * (move_speed * delta_time);
+
+                if (!entity_movement_is_blocked(enemy_handle, primary_proposed)) {
+                    enemy.movement_heading = primary;
+                    enemy.world_position = primary_proposed;
+                    spatial_grid_.update(enemy_handle, old_world_bounds, entity_world_bounds(enemy));
+                    continue;
+                }
+
+                // Try secondary cardinal axis toward player before giving up the step.
+                const CardinalDirection secondary = chase_secondary_direction(to_player);
+                const Vector2 secondary_proposed = enemy.world_position
+                    + cardinal_vector(secondary) * (move_speed * delta_time);
+
+                ++collision_diagnostics_.movement_attempts;
+                if (secondary != primary && !entity_movement_is_blocked(enemy_handle, secondary_proposed)) {
+                    enemy.movement_heading = secondary;
+                    enemy.world_position = secondary_proposed;
+                    spatial_grid_.update(enemy_handle, old_world_bounds, entity_world_bounds(enemy));
+                    continue;
+                }
+
+                ++collision_diagnostics_.blocked_moves;
+                ++collision_diagnostics_.enemy_turns;
+                continue;
+            }
+
             const Vector2 direction = cardinal_vector(enemy.movement_heading);
-            const Vector2 displacement = direction * (enemy_speed_ * delta_time);
+            const Vector2 displacement = direction * (move_speed * delta_time);
             const Vector2 proposed_position = enemy.world_position + displacement;
 
             if (entity_movement_is_blocked(enemy_handle, proposed_position)) {
@@ -294,13 +349,11 @@ namespace kotte
             }
 
             enemy.world_position = proposed_position;
-            const Rectangle new_world_bounds = entity_world_bounds(enemy);
-
-            spatial_grid_.update(enemy_handle, old_world_bounds, new_world_bounds);
+            spatial_grid_.update(enemy_handle, old_world_bounds, entity_world_bounds(enemy));
         }
 
-        if (round_state_ == RoundState::playing && !player_died_this_frame_) {
-            const Rectangle player_collision = entity_collision_bounds(player());
+        if (round_state_ == RoundState::playing && !player_died_this_frame_ && player_entity != nullptr) {
+            const Rectangle player_collision = entity_collision_bounds(*player_entity);
             for (const EntityHandle enemy_handle : enemy_handles_) {
                 const Entity* enemy = entities_.try_get(enemy_handle);
                 if (enemy == nullptr) {
@@ -567,7 +620,7 @@ namespace kotte
                 : RenderLayer::world;
             renderer_.submit({
                 bounds,
-                entity_color(visible_candidate->kind),
+                entity_color(*visible_candidate),
                 layer,
                 visible_candidate->world_position.y,
                 entity_roundness(visible_candidate->kind)
@@ -681,10 +734,14 @@ namespace kotte
     }
 
     void Application::initialize_enemies() {
-        for (const EntityHandle enemy_handle : enemy_handles_) {
-            Entity& enemy = entity(enemy_handle);
+        for (std::size_t i = 0; i < enemy_handles_.size(); ++i) {
+            Entity& enemy = entity(enemy_handles_[i]);
             enemy.movement_heading = static_cast<CardinalDirection>(
                 random_.next<4, std::uint8_t>());
+            enemy.enemy_behavior = (i % 3 == 0)
+                ? EnemyBehavior::chaser
+                : EnemyBehavior::wander;
+            enemy.is_chasing = false;
         }
     }
 
@@ -847,6 +904,20 @@ namespace kotte
         return static_cast<CardinalDirection>(new_value);
     }
 
+    CardinalDirection Application::chase_primary_direction(Vector2 to_target) noexcept {
+        if (std::abs(to_target.x) >= std::abs(to_target.y)) {
+            return to_target.x >= 0.0f ? CardinalDirection::right : CardinalDirection::left;
+        }
+        return to_target.y >= 0.0f ? CardinalDirection::down : CardinalDirection::up;
+    }
+
+    CardinalDirection Application::chase_secondary_direction(Vector2 to_target) noexcept {
+        if (std::abs(to_target.x) >= std::abs(to_target.y)) {
+            return to_target.y >= 0.0f ? CardinalDirection::down : CardinalDirection::up;
+        }
+        return to_target.x >= 0.0f ? CardinalDirection::right : CardinalDirection::left;
+    }
+
     std::size_t Application::active_bomb_count_for_owner(EntityHandle owner) const noexcept {
         if (!entities_.contains(owner)) {
             return 0;
@@ -888,12 +959,15 @@ namespace kotte
         };
     }
 
-    Color Application::entity_color(EntityKind kind) noexcept {
-        switch (kind) {
+    Color Application::entity_color(const Entity& entity) noexcept {
+        switch (entity.kind) {
         case EntityKind::player: return player_color_;
         case EntityKind::bomb: return bomb_color_;
         case EntityKind::crate: return crate_color_;
-        case EntityKind::enemy: return enemy_color_;
+        case EntityKind::enemy:
+            return entity.enemy_behavior == EnemyBehavior::chaser
+                ? chaser_color_
+                : enemy_color_;
         }
         return MAGENTA;
     }
