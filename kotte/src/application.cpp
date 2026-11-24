@@ -327,7 +327,7 @@ namespace kotte
         for (const PlaceBombRequest& request : place_bomb_requests_) {
             const Entity* owner = entities_.try_get(request.owner);
             if (owner == nullptr || owner->kind != EntityKind::player
-                || owner_has_active_bomb(request.owner)) {
+                || active_bomb_count_for_owner(request.owner) >= max_active_bombs_per_owner_) {
                 continue;
             }
 
@@ -580,11 +580,13 @@ namespace kotte
             ? RED
             : (round_state_ == RoundState::won ? GREEN : RAYWHITE);
         diagnostics = std::format(
-            "state: {} | objective: defeat all enemies ({} left) | range: {}/{}",
+            "state: {} | objective: defeat all enemies ({} left) | range: {}/{} | bombs: {}/{}",
             state_label,
             enemy_handles_.size(),
             player_blast_range_,
-            max_blast_range_);
+            max_blast_range_,
+            active_bomb_count_for_owner(player_handle_),
+            max_active_bombs_per_owner_);
         DrawText(diagnostics.c_str(), 10, 10, 20, state_color);
 
         const double percent_of_world = map_.tile_count() == 0 ? 0.0 : 100.0 * static_cast<double>(tiles_rendered) / static_cast<double>(map_.tile_count());
@@ -829,13 +831,19 @@ namespace kotte
         return static_cast<CardinalDirection>(new_value);
     }
 
-    bool Application::owner_has_active_bomb(EntityHandle owner) const noexcept {
-        return std::ranges::any_of(active_bomb_handles_, [this, owner](EntityHandle bomb_handle) {
-            const Entity* bomb = entities_.try_get(bomb_handle);
-            return bomb != nullptr
-                && bomb->bomb_state.has_value()
-                && bomb->bomb_state->owner == owner;
-            });
+    std::size_t Application::active_bomb_count_for_owner(EntityHandle owner) const noexcept {
+        if (!entities_.contains(owner)) {
+            return 0;
+        }
+
+        return static_cast<std::size_t>(std::ranges::count_if(
+            active_bomb_handles_,
+            [this, owner](EntityHandle bomb_handle) {
+                const Entity* bomb = entities_.try_get(bomb_handle);
+                return bomb != nullptr
+                    && bomb->bomb_state.has_value()
+                    && bomb->bomb_state->owner == owner;
+            }));
     }
 
     bool Application::tile_has_live_bomb(Vector2 tile_world_centre) const noexcept {
