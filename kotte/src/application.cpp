@@ -19,7 +19,7 @@ namespace kotte
         : window_{ width, height, title, target_fps }
         , camera_{ window_.size() }
         , random_{ seed }
-        , map_{ make_room(200, 120, random_) }
+        , map_{ make_room(map_width_tiles_, map_height_tiles_, random_) }
         , spatial_grid_{ {
             static_cast<float>(map_.width() * tile_size_),
             static_cast<float>(map_.height() * tile_size_)}, spatial_cell_size_ }
@@ -58,10 +58,10 @@ namespace kotte
         if (IsKeyPressed(KEY_ESCAPE) || IsKeyPressed(KEY_Q)) {
             request_exit();
         }
+        if (IsKeyPressed(KEY_R)) {
+            frame_actions_.restart_round = true;
+        }
         if (round_state_ != RoundState::playing) {
-            if (IsKeyPressed(KEY_R)) {
-                frame_actions_.restart_round = true;
-            }
             return;
         }
         frame_actions_.place_bomb = IsKeyPressed(KEY_SPACE);
@@ -119,6 +119,9 @@ namespace kotte
         if (round_state_ != RoundState::playing) {
             return;
         }
+
+        round_time_remaining_seconds_ = std::max(0.0f, round_time_remaining_seconds_ - delta_time);
+
         for (const EntityHandle bomb_handle : active_bomb_handles_) {
             Entity* bomb = entities_.try_get(bomb_handle);
             if (bomb == nullptr || !bomb->bomb_state.has_value()
@@ -180,9 +183,9 @@ namespace kotte
         apply_entity_destructions();
         apply_bomb_placements();
 
-        // Lost takes priority over Won if player death and final enemy defeat happen together.
+        // Lost death or 5-minute timeout takes priority over Won.
         if (round_state_ == RoundState::playing) {
-            if (player_died_this_frame_) {
+            if (player_died_this_frame_ || round_time_remaining_seconds_ <= 0.0f) {
                 round_state_ = RoundState::lost;
             }
             else if (enemy_handles_.empty()) {
@@ -201,12 +204,13 @@ namespace kotte
 
         entities_.clear();
         random_ = Random{ seed_ };
-        map_ = make_room(200, 120, random_);
+        map_ = make_room(map_width_tiles_, map_height_tiles_, random_);
         spatial_grid_ = SpatialGrid{ {
             static_cast<float>(map_.width() * tile_size_),
             static_cast<float>(map_.height() * tile_size_)}, spatial_cell_size_ };
 
         round_state_ = RoundState::playing;
+        round_time_remaining_seconds_ = round_time_limit_seconds_;
         player_died_this_frame_ = false;
         player_blast_range_ = bomb_blast_range_;
         pickup_available_ = true;
@@ -288,7 +292,7 @@ namespace kotte
             ++collision_diagnostics_.enemy_updates;
             ++collision_diagnostics_.movement_attempts;
 
-            // Update two-radius hysteresis state for chasers (250 enter, 350 exit).
+        
             Vector2 to_player{};
             if (enemy.enemy_behavior == EnemyBehavior::chaser && player_entity != nullptr) {
                 to_player = player_entity->world_position - enemy.world_position;
@@ -319,7 +323,7 @@ namespace kotte
                     continue;
                 }
 
-                // Try secondary cardinal axis toward player before giving up the step.
+            
                 const CardinalDirection secondary = chase_secondary_direction(to_player);
                 const Vector2 secondary_proposed = enemy.world_position
                     + cardinal_vector(secondary) * (move_speed * delta_time);
@@ -642,6 +646,10 @@ namespace kotte
 
         DrawFPS(GetScreenWidth() - 100, 2);
 
+        const int total_seconds_remaining = static_cast<int>(std::ceil(round_time_remaining_seconds_));
+        const int minutes_remaining = total_seconds_remaining / 60;
+        const int seconds_remaining = total_seconds_remaining % 60;
+
         const std::string_view state_label = round_state_ == RoundState::playing
             ? "Playing"
             : (round_state_ == RoundState::won ? "Won (R to restart)" : "Lost (R to restart)");
@@ -649,8 +657,10 @@ namespace kotte
             ? RED
             : (round_state_ == RoundState::won ? GREEN : RAYWHITE);
         diagnostics = std::format(
-            "state: {} | objective: defeat all enemies ({} left) | range: {}/{} | bombs: {}/{}",
+            "state: {} | time: {:02}:{:02} | enemies: {} | range: {}/{} | bombs: {}/{}",
             state_label,
+            minutes_remaining,
+            seconds_remaining,
             enemy_handles_.size(),
             player_blast_range_,
             max_blast_range_,
@@ -697,7 +707,7 @@ namespace kotte
             "world: {} x {} tiles | {} total", map_.width(), map_.height(), map_.tile_count());
         DrawText(diagnostics.c_str(), 10, window_.height() - 54, 20, RAYWHITE);
 
-        DrawText("move: WASD/arrows | bomb: Space | quit: Q/Escape", 10, window_.height() - 30, 20, LIGHTGRAY);
+        DrawText("move: WASD/arrows | bomb: Space | restart: R | quit: Q/Escape", 10, window_.height() - 30, 20, LIGHTGRAY);
     }
 
     void Application::populate_entities() {

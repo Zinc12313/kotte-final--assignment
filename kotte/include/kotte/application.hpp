@@ -133,6 +133,8 @@ namespace kotte
         [[nodiscard]] static Color entity_color(const Entity& entity) noexcept;
         [[nodiscard]] static float entity_roundness(EntityKind kind) noexcept;
 
+        static constexpr int map_width_tiles_ = 40;
+        static constexpr int map_height_tiles_ = 20;
         static constexpr int tile_size_ = 40;
         static constexpr int spatial_cell_tiles_ = 8;
         static constexpr float spatial_cell_size_ = tile_size_ * spatial_cell_tiles_;
@@ -142,7 +144,8 @@ namespace kotte
         static constexpr float chase_enter_radius_ = 250.0f;
         static constexpr float chase_exit_radius_ = 350.0f;
         static constexpr float bomb_fuse_seconds_ = 2.0f;
-        static constexpr std::size_t max_active_bombs_per_owner_ = 2;
+        static constexpr float round_time_limit_seconds_ = 300.0f;
+        static constexpr std::size_t max_active_bombs_per_owner_ = 3;
         static constexpr std::uint8_t bomb_blast_range_ = 3;
         static constexpr std::uint8_t blast_range_increment_ = 1;
         static constexpr std::uint8_t max_blast_range_ = 6;
@@ -181,6 +184,7 @@ namespace kotte
         CollisionDiagnostics collision_diagnostics_;
         std::uint64_t seed_;
         EntityHandle player_handle_;
+        float round_time_remaining_seconds_ = round_time_limit_seconds_;
         std::uint8_t player_blast_range_ = bomb_blast_range_;
         bool pickup_available_ = true;
         bool exit_requested_ = false;
