@@ -84,6 +84,7 @@ namespace kotte
         void begin_frame() noexcept;
         void collect_frame_actions() noexcept;
         void update_gameplay(float delta_time);
+        void check_pickup_collection() noexcept;
         void update_timed_gameplay(float delta_time);
         void resolve_gameplay_facts();
         void apply_structural_mutations();
@@ -116,6 +117,7 @@ namespace kotte
         [[nodiscard]] const Entity& player() const noexcept;
         [[nodiscard]] Rectangle entity_world_bounds(const Entity& entity) const noexcept;
         [[nodiscard]] Rectangle entity_collision_bounds(const Entity& entity) const noexcept;
+        [[nodiscard]] Rectangle pickup_world_bounds() const noexcept;
         [[nodiscard]] bool entity_movement_is_blocked(
             EntityHandle moving_entity_handle,
             Vector2 proposed_position);
@@ -128,6 +130,7 @@ namespace kotte
         [[nodiscard]] static Vector2 tile_centre(int column, int row) noexcept;
         [[nodiscard]] static Color entity_color(EntityKind kind) noexcept;
         [[nodiscard]] static float entity_roundness(EntityKind kind) noexcept;
+
         static constexpr int tile_size_ = 40;
         static constexpr int spatial_cell_tiles_ = 8;
         static constexpr float spatial_cell_size_ = tile_size_ * spatial_cell_tiles_;
@@ -135,6 +138,10 @@ namespace kotte
         static constexpr float enemy_speed_ = 80.0f;
         static constexpr float bomb_fuse_seconds_ = 2.0f;
         static constexpr std::uint8_t bomb_blast_range_ = 3;
+        static constexpr std::uint8_t blast_range_increment_ = 1;
+        static constexpr std::uint8_t max_blast_range_ = 6;
+        static constexpr int pickup_tile_column_ = 4;
+        static constexpr int pickup_tile_row_ = 2;
         static constexpr float blast_effect_seconds_ = 0.35f;
         static constexpr Color background_color_{ 0x11, 0x22, 0x33, 0xff };
         static constexpr Color floor_colors_[3]{
@@ -147,6 +154,7 @@ namespace kotte
         static constexpr Color blast_color_{ 0xf2, 0x8f, 0x3b, 0xe8 };
         static constexpr Color crate_color_{ 0xb0, 0x72, 0x3c, 0xff };
         static constexpr Color enemy_color_{ 0xd9, 0x4f, 0x70, 0xff };
+        static constexpr Color pickup_color_{ 0x4e, 0xc9, 0xb0, 0xff };
         static constexpr Color wall_color_{ 0x78, 0x5f, 0x47, 0xff };
 
         Window window_;
@@ -166,6 +174,8 @@ namespace kotte
         CollisionDiagnostics collision_diagnostics_;
         std::uint64_t seed_;
         EntityHandle player_handle_;
+        std::uint8_t player_blast_range_ = bomb_blast_range_;
+        bool pickup_available_ = true;
         bool exit_requested_ = false;
         RoundState round_state_ = RoundState::playing;
         bool player_died_this_frame_ = false;
