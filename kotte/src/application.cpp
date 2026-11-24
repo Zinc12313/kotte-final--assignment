@@ -148,8 +148,8 @@ namespace kotte
     }
 
     void Application::resolve_gameplay_facts() {
-        
-         for (std::size_t i = 0; i < bomb_detonated_facts_.size(); ++i) {
+       
+        for (std::size_t i = 0; i < bomb_detonated_facts_.size(); ++i) {
             const BombDetonated fact = bomb_detonated_facts_[i];
 
             BlastEffect effect;
@@ -292,7 +292,7 @@ namespace kotte
             ++collision_diagnostics_.enemy_updates;
             ++collision_diagnostics_.movement_attempts;
 
-        
+           
             Vector2 to_player{};
             if (enemy.enemy_behavior == EnemyBehavior::chaser && player_entity != nullptr) {
                 to_player = player_entity->world_position - enemy.world_position;
@@ -323,7 +323,7 @@ namespace kotte
                     continue;
                 }
 
-            
+                
                 const CardinalDirection secondary = chase_secondary_direction(to_player);
                 const Vector2 secondary_proposed = enemy.world_position
                     + cardinal_vector(secondary) * (move_speed * delta_time);
@@ -336,8 +336,21 @@ namespace kotte
                     continue;
                 }
 
+              
                 ++collision_diagnostics_.blocked_moves;
                 ++collision_diagnostics_.enemy_turns;
+                const CardinalDirection fallback = different_enemy_direction(enemy.movement_heading);
+                const Vector2 fallback_proposed = enemy.world_position
+                    + cardinal_vector(fallback) * (move_speed * delta_time);
+                ++collision_diagnostics_.movement_attempts;
+                if (!entity_movement_is_blocked(enemy_handle, fallback_proposed)) {
+                    enemy.movement_heading = fallback;
+                    enemy.world_position = fallback_proposed;
+                    spatial_grid_.update(enemy_handle, old_world_bounds, entity_world_bounds(enemy));
+                }
+                else {
+                    enemy.movement_heading = fallback;
+                }
                 continue;
             }
 
@@ -717,9 +730,11 @@ namespace kotte
         player_handle_ = entities_.create(player_entity);
         spatial_grid_.insert(player_handle_, entity_world_bounds(player_entity));
 
-        for (int y = 1; y < map_.height() - 1; ++y) {
-            for (int x = 1; x < map_.width() - 1; ++x) {
-                if ((x == 2 && y == 2) || map_.at(x, y).type != TileType::floor || !random_.coin_flip(0.25f)) {
+   
+        for (int y = 2; y < map_.height() - 2; ++y) {
+            for (int x = 2; x < map_.width() - 2; ++x) {
+                if ((x == 2 && y == 2) || (x == pickup_tile_column_ && y == pickup_tile_row_)
+                    || map_.at(x, y).type != TileType::floor || !random_.coin_flip(0.25f)) {
                     continue;
                 }
 
