@@ -86,7 +86,7 @@ namespace kotte
     }
 
     void Application::update_gameplay(float delta_time) {
-        if (round_state_ != RoundState::playing) {
+        if (round_state_ != RoundState::playing || entities_.try_get(player_handle_) == nullptr) {
             return;
         }
         update_player(delta_time);
@@ -95,21 +95,23 @@ namespace kotte
         queue_bomb_placement();
     }
 
-    void Application::check_pickup_collection() noexcept {
-        if (!pickup_available_) {
-            return;
-        }
-
+    void Application::check_pickup_collection() {
+        const Entity* pickup_entity = entities_.try_get(pickup_handle_);
         const Entity* player_entity = entities_.try_get(player_handle_);
-        if (player_entity == nullptr) {
+        if (pickup_entity == nullptr || player_entity == nullptr) {
             return;
         }
 
-        if (!CheckCollisionRecs(entity_collision_bounds(*player_entity), pickup_world_bounds())) {
+        if (!CheckCollisionRecs(
+            entity_collision_bounds(*player_entity),
+            entity_collision_bounds(*pickup_entity))) {
             return;
         }
 
-        pickup_available_ = false;
+
+        destroy_entity_requests_.push_back({ pickup_handle_ });
+        pickup_handle_ = {};
+
         const int increased_range = static_cast<int>(player_blast_range_) + blast_range_increment_;
         player_blast_range_ = static_cast<std::uint8_t>(
             std::min<int>(increased_range, max_blast_range_));
@@ -148,7 +150,7 @@ namespace kotte
     }
 
     void Application::resolve_gameplay_facts() {
-       
+
         for (std::size_t i = 0; i < bomb_detonated_facts_.size(); ++i) {
             const BombDetonated fact = bomb_detonated_facts_[i];
 
@@ -201,6 +203,8 @@ namespace kotte
         blast_effects_.clear();
         enemy_handles_.clear();
         active_bomb_handles_.clear();
+        player_handle_ = {};
+        pickup_handle_ = {};
 
         entities_.clear();
         random_ = Random{ seed_ };
@@ -213,7 +217,6 @@ namespace kotte
         round_time_remaining_seconds_ = round_time_limit_seconds_;
         player_died_this_frame_ = false;
         player_blast_range_ = bomb_blast_range_;
-        pickup_available_ = true;
         collision_diagnostics_ = {};
 
         populate_entities();
@@ -292,7 +295,6 @@ namespace kotte
             ++collision_diagnostics_.enemy_updates;
             ++collision_diagnostics_.movement_attempts;
 
-           
             Vector2 to_player{};
             if (enemy.enemy_behavior == EnemyBehavior::chaser && player_entity != nullptr) {
                 to_player = player_entity->world_position - enemy.world_position;
@@ -323,7 +325,6 @@ namespace kotte
                     continue;
                 }
 
-                
                 const CardinalDirection secondary = chase_secondary_direction(to_player);
                 const Vector2 secondary_proposed = enemy.world_position
                     + cardinal_vector(secondary) * (move_speed * delta_time);
@@ -336,7 +337,6 @@ namespace kotte
                     continue;
                 }
 
-              
                 ++collision_diagnostics_.blocked_moves;
                 ++collision_diagnostics_.enemy_turns;
                 const CardinalDirection fallback = different_enemy_direction(enemy.movement_heading);
@@ -371,12 +371,23 @@ namespace kotte
 
         if (round_state_ == RoundState::playing && !player_died_this_frame_ && player_entity != nullptr) {
             const Rectangle player_collision = entity_collision_bounds(*player_entity);
-            for (const EntityHandle enemy_handle : enemy_handles_) {
-                const Entity* enemy = entities_.try_get(enemy_handle);
-                if (enemy == nullptr) {
+            const SpatialQuery contact_candidates = spatial_grid_.query(player_collision);
+            ++collision_diagnostics_.spatial_queries;
+            collision_diagnostics_.cells_visited += contact_candidates.cells_visited;
+            collision_diagnostics_.candidate_references += contact_candidates.candidate_references;
+            collision_diagnostics_.unique_candidates += contact_candidates.entity_handles.size();
+
+            for (const EntityHandle candidate_handle : contact_candidates.entity_handles) {
+                if (candidate_handle == player_handle_) {
                     continue;
                 }
-                if (CheckCollisionRecs(player_collision, entity_collision_bounds(*enemy))) {
+                const Entity* candidate = entities_.try_get(candidate_handle);
+                if (candidate == nullptr || candidate->kind != EntityKind::enemy) {
+                    continue;
+                }
+                ++collision_diagnostics_.exact_tests;
+                if (CheckCollisionRecs(player_collision, entity_collision_bounds(*candidate))) {
+                    ++collision_diagnostics_.contacts;
                     destroy_entity_requests_.push_back({ player_handle_ });
                     player_died_this_frame_ = true;
                     break;
@@ -508,6 +519,8 @@ namespace kotte
                     player_died_this_frame_ = true;
                 }
                 break;
+            case EntityKind::pickup:
+                break;
             }
         }
 
@@ -573,18 +586,6 @@ namespace kotte
             }
         }
 
-        if (pickup_available_) {
-            Rectangle pickup_rect = pickup_world_bounds();
-            if (CheckCollisionRecs(pickup_rect, world_view)) {
-                const Vector2 screen_pos = camera_.world_to_screen({ pickup_rect.x, pickup_rect.y });
-                DrawRectangleRounded(
-                    { screen_pos.x, screen_pos.y, pickup_rect.width, pickup_rect.height },
-                    0.5f,
-                    8,
-                    pickup_color_);
-            }
-        }
-
         const SpatialQuery spatial_query = spatial_grid_.query(world_view);
         std::size_t exact_visibility_tests = 0;
         std::size_t visible_entities = 0;
@@ -632,7 +633,8 @@ namespace kotte
             const Vector2 screen_position = camera_.world_to_screen({ bounds.x, bounds.y });
             bounds.x = screen_position.x;
             bounds.y = screen_position.y;
-            const RenderLayer layer = visible_candidate->kind == EntityKind::bomb
+            const RenderLayer layer = (visible_candidate->kind == EntityKind::bomb
+                || visible_candidate->kind == EntityKind::pickup)
                 ? RenderLayer::ground
                 : RenderLayer::world;
             renderer_.submit({
@@ -670,11 +672,11 @@ namespace kotte
             ? RED
             : (round_state_ == RoundState::won ? GREEN : RAYWHITE);
         diagnostics = std::format(
-            "state: {} | time: {:02}:{:02} | enemies: {} | range: {}/{} | bombs: {}/{}",
+            "state: {} | objective: defeat all enemies ({} left) | time: {:02}:{:02} | range: {}/{} | bombs: {}/{}",
             state_label,
+            enemy_handles_.size(),
             minutes_remaining,
             seconds_remaining,
-            enemy_handles_.size(),
             player_blast_range_,
             max_blast_range_,
             active_bomb_count_for_owner(player_handle_),
@@ -730,7 +732,15 @@ namespace kotte
         player_handle_ = entities_.create(player_entity);
         spatial_grid_.insert(player_handle_, entity_world_bounds(player_entity));
 
-   
+        const Entity pickup_entity{
+            EntityKind::pickup,
+            tile_centre(pickup_tile_column_, pickup_tile_row_)
+        };
+        pickup_handle_ = entities_.create(pickup_entity);
+        spatial_grid_.insert(pickup_handle_, entity_world_bounds(pickup_entity));
+
+        // Keep a 1-tile perimeter floor ring clear so entities never spawn wedged
+        // in pockets between crates and the outer room walls.
         for (int y = 2; y < map_.height() - 2; ++y) {
             for (int x = 2; x < map_.width() - 2; ++x) {
                 if ((x == 2 && y == 2) || (x == pickup_tile_column_ && y == pickup_tile_row_)
@@ -797,10 +807,16 @@ namespace kotte
         case EntityKind::bomb: size = { 22.0f, 22.0f }; break;
         case EntityKind::crate: size = { 36.0f, 48.0f }; break;
         case EntityKind::enemy: size = { 28.0f, 30.0f }; break;
+        case EntityKind::pickup: size = { 18.0f, 18.0f }; break;
         }
 
-        const Vector2 top_left = entity.world_position - Vector2{ size.x / 2.0f, size.y };
-        return { top_left.x, top_left.y, size.x, size.y };
+        const Vector2 top_left = entity.world_position - Vector2{ size.x / 2.0f, size.y / 2.0f };
+        if (entity.kind == EntityKind::pickup) {
+            return { top_left.x, top_left.y, size.x, size.y };
+        }
+
+        const Vector2 foot_top_left = entity.world_position - Vector2{ size.x / 2.0f, size.y };
+        return { foot_top_left.x, foot_top_left.y, size.x, size.y };
     }
 
     Rectangle Application::entity_collision_bounds(const Entity& entity) const noexcept {
@@ -810,21 +826,16 @@ namespace kotte
         case EntityKind::bomb: size = { 18.0f, 12.0f }; break;
         case EntityKind::crate: size = { 32.0f, 32.0f }; break;
         case EntityKind::enemy: size = { 24.0f, 14.0f }; break;
+        case EntityKind::pickup: size = { 18.0f, 18.0f }; break;
+        }
+
+        if (entity.kind == EntityKind::pickup) {
+            const Vector2 centre_top_left = entity.world_position - Vector2{ size.x / 2.0f, size.y / 2.0f };
+            return { centre_top_left.x, centre_top_left.y, size.x, size.y };
         }
 
         const Vector2 top_left = entity.world_position - Vector2{ size.x / 2.0f, size.y };
         return { top_left.x, top_left.y, size.x, size.y };
-    }
-
-    Rectangle Application::pickup_world_bounds() const noexcept {
-        const Vector2 centre = tile_centre(pickup_tile_column_, pickup_tile_row_);
-        constexpr float pickup_size = 18.0f;
-        return {
-            centre.x - pickup_size * 0.5f,
-            centre.y - pickup_size * 0.5f,
-            pickup_size,
-            pickup_size
-        };
     }
 
     bool Application::entity_movement_is_blocked(
@@ -888,6 +899,13 @@ namespace kotte
                 }
             }
 
+            const bool is_player_enemy_pair =
+                (moving_entity.kind == EntityKind::player && candidate->kind == EntityKind::enemy)
+                || (moving_entity.kind == EntityKind::enemy && candidate->kind == EntityKind::player);
+            if (is_player_enemy_pair) {
+                continue;
+            }
+
             ++collision_diagnostics_.contacts;
             blocked = true;
         }
@@ -902,6 +920,8 @@ namespace kotte
         case EntityKind::enemy:
         case EntityKind::bomb:
             return true;
+        case EntityKind::pickup:
+            return false;
         }
 
         return false;
@@ -993,12 +1013,21 @@ namespace kotte
             return entity.enemy_behavior == EnemyBehavior::chaser
                 ? chaser_color_
                 : enemy_color_;
+        case EntityKind::pickup: return pickup_color_;
         }
         return MAGENTA;
     }
 
     float Application::entity_roundness(EntityKind kind) noexcept {
-        return kind == EntityKind::crate ? 0.15f : 0.8f;
+        switch (kind) {
+        case EntityKind::crate: return 0.15f;
+        case EntityKind::pickup: return 0.5f;
+        case EntityKind::player:
+        case EntityKind::bomb:
+        case EntityKind::enemy:
+            return 0.8f;
+        }
+        return 0.8f;
     }
 
     void Application::request_exit() noexcept {

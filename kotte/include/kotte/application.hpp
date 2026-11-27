@@ -84,7 +84,7 @@ namespace kotte
         void begin_frame() noexcept;
         void collect_frame_actions() noexcept;
         void update_gameplay(float delta_time);
-        void check_pickup_collection() noexcept;
+        void check_pickup_collection();
         void update_timed_gameplay(float delta_time);
         void resolve_gameplay_facts();
         void apply_structural_mutations();
@@ -117,7 +117,6 @@ namespace kotte
         [[nodiscard]] const Entity& player() const noexcept;
         [[nodiscard]] Rectangle entity_world_bounds(const Entity& entity) const noexcept;
         [[nodiscard]] Rectangle entity_collision_bounds(const Entity& entity) const noexcept;
-        [[nodiscard]] Rectangle pickup_world_bounds() const noexcept;
         [[nodiscard]] bool entity_movement_is_blocked(
             EntityHandle moving_entity_handle,
             Vector2 proposed_position);
@@ -184,9 +183,9 @@ namespace kotte
         CollisionDiagnostics collision_diagnostics_;
         std::uint64_t seed_;
         EntityHandle player_handle_;
+        EntityHandle pickup_handle_;
         float round_time_remaining_seconds_ = round_time_limit_seconds_;
         std::uint8_t player_blast_range_ = bomb_blast_range_;
-        bool pickup_available_ = true;
         bool exit_requested_ = false;
         RoundState round_state_ = RoundState::playing;
         bool player_died_this_frame_ = false;
